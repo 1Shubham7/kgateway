@@ -10,12 +10,13 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/remotejwtauth"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
@@ -90,7 +91,6 @@ var (
 		Manifests: []string{
 			setupManifest,
 			testdefaults.HttpbinManifest,
-			testdefaults.CurlPodManifest,
 		},
 	}
 
@@ -124,6 +124,15 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	return &testingSuite{
 		BaseTestingSuite: base.NewBaseTestingSuite(ctx, testInst, setup, testCases),
 	}
+}
+
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: gatewayObjectMeta.GetNamespace(),
+		Name:      gatewayObjectMeta.GetName(),
+	})
 }
 
 // TestJwtAuthentication tests the JWT Policy applied at the HTTPRoute rule (extensionRef) level
@@ -244,30 +253,22 @@ func (s *testingSuite) TestJwtDisable() {
 }
 
 func (s *testingSuite) assertResponse(path, authHeader string, expected *matchers.HttpResponse) {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithPath(path),
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("httpbin"),
-			curl.WithHeader("Authorization", "Bearer "+authHeader),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		expected,
+		curl.WithPath(path),
+		curl.WithHostHeader("httpbin"),
+		curl.WithHeader("Authorization", "Bearer "+authHeader),
+		curl.WithPort(8080),
 	)
 }
 
 func (s *testingSuite) assertResponseWithoutAuth(path string, expected *matchers.HttpResponse) {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithPath(path),
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("httpbin"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		expected,
+		curl.WithPath(path),
+		curl.WithHostHeader("httpbin"),
+		curl.WithPort(8080),
 	)
 }

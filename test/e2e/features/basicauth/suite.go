@@ -10,13 +10,14 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
@@ -28,9 +29,12 @@ func getTestFile(name string) string {
 }
 
 var (
-	proxyObjectMeta = metav1.ObjectMeta{Name: "gw", Namespace: "default"}
+	proxyObjectMeta = metav1.ObjectMeta{
+		Name:      "gw",
+		Namespace: "default",
+	}
 
-	setup = base.TestCase{Manifests: []string{getTestFile("common.yaml"), getTestFile("service.yaml"), testdefaults.CurlPodManifest}}
+	setup = base.TestCase{Manifests: []string{getTestFile("common.yaml"), getTestFile("service.yaml")}}
 
 	testCases = map[string]*base.TestCase{
 		"TestTrafficPolicyBasicAuthForRoute":               {Manifests: []string{getTestFile("httproutes.yaml"), getTestFile("tp-route-basicauth.yaml")}},
@@ -42,6 +46,15 @@ type testingSuite struct{ *base.BaseTestingSuite }
 
 func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.TestingSuite {
 	return &testingSuite{BaseTestingSuite: base.NewBaseTestingSuite(ctx, testInst, setup, testCases)}
+}
+
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
 }
 
 func (s *testingSuite) TestTrafficPolicyBasicAuthForRoute() {
@@ -86,19 +99,21 @@ func creds(user, pass string) string {
 }
 
 func (s *testingSuite) assertAuthResponse(host, path, authHeader string, expectedStatus int) {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{curl.WithHost(host), curl.WithHostHeader("secure.example.com"), curl.WithPath(path), curl.WithHeader("Authorization", "Basic "+authHeader), curl.WithPort(8080)},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{StatusCode: expectedStatus},
+		curl.WithHostHeader("secure.example.com"),
+		curl.WithPath(path),
+		curl.WithHeader("Authorization", "Basic "+authHeader),
+		curl.WithPort(8080),
 	)
 }
 
 func (s *testingSuite) assertNoAuthResponse(host, hostHeader string, expectedStatus int) {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{curl.WithHost(host), curl.WithHostHeader(hostHeader), curl.WithPort(8080)},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{StatusCode: expectedStatus},
+		curl.WithHostHeader(hostHeader),
+		curl.WithPort(8080),
 	)
 }

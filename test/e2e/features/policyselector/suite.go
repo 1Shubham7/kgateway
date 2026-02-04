@@ -14,10 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -44,7 +46,7 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	return &tsuite{
 		ctx:             ctx,
 		ti:              testInst,
-		commonManifests: []string{labelSelectorManifest, defaults.CurlPodManifest, defaults.HttpbinManifest},
+		commonManifests: []string{labelSelectorManifest, defaults.HttpbinManifest},
 		testManifests:   map[string][]string{},
 	}
 }
@@ -60,14 +62,17 @@ func (s *tsuite) SetupSuite() {
 		s.Require().NoErrorf(err, "manifest %s, out: %s", manifest, out.String())
 	}
 
-	s.ti.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, defaults.CurlPod.Namespace, metav1.ListOptions{
-		LabelSelector: defaults.CurlPodLabelSelector,
-	})
 	s.ti.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, defaults.HttpbinDeployment.Namespace, metav1.ListOptions{
 		LabelSelector: defaults.HttpbinLabelSelector,
 	})
 	s.ti.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, gateway.Namespace, metav1.ListOptions{
 		LabelSelector: defaults.WellKnownAppLabel + "=" + gateway.Name,
+	})
+
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.ctx, s.ti, types.NamespacedName{
+		Namespace: gateway.Namespace,
+		Name:      gateway.Name,
 	})
 }
 
@@ -103,9 +108,12 @@ func (s *tsuite) AfterTest(suiteName, testName string) {
 
 func (s *tsuite) TestLabelSelector() {
 	// Verify response transformation with TrafficPolicy
-	s.ti.AssertionsT(s.T()).AssertEventuallyConsistentCurlResponse(s.ctx, defaults.CurlPodExecOpt,
-		[]curl.Option{curl.WithHostPort(proxyHostPort), curl.WithPath("/get")},
-		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Headers: map[string]any{"x-foo": "bar"}})
+	common.BaseGateway.Send(
+		s.T(),
+		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Headers: map[string]any{"x-foo": "bar"}},
+		curl.WithPath("/get"),
+		curl.WithPort(gatewayPort),
+	)
 
 	// Verify access logs with HTTPListenerPolicy
 	pods, err := s.ti.Actions.Kubectl().GetPodsInNsWithLabel(
@@ -137,11 +145,15 @@ func (s *tsuite) TestGlobalPolicy() {
 	}
 
 	// Verify cors policy defined in Settings.GlobalPolicyNamespace (kgateway-system) is applied
-	s.ti.AssertionsT(s.T()).AssertEventuallyConsistentCurlResponse(s.ctx, defaults.CurlPodExecOpt,
-		[]curl.Option{curl.WithHostPort(proxyHostPort), curl.WithPath("/get"), curl.WithHeaders(requestHeaders), curl.WithMethod(http.MethodOptions)},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Headers:    wantResponseHeaders,
 		},
+		curl.WithPath("/get"),
+		curl.WithPort(gatewayPort),
+		curl.WithHeaders(requestHeaders),
+		curl.WithMethod(http.MethodOptions),
 	)
 }
