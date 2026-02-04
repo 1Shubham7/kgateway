@@ -10,11 +10,12 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -34,10 +35,9 @@ var (
 		Namespace: "default",
 	}
 
-	// test cases
+	// test cases - removed CurlPodManifest
 	setup = base.TestCase{
 		Manifests: []string{
-			testdefaults.CurlPodManifest,
 			gatewayWithRouteManifest,
 		},
 	}
@@ -65,6 +65,17 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	}
 }
 
+// SetupSuite sets up the base gateway for native Go HTTP requests
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
+}
+
 func (s *testingSuite) TestGatewayWithRoute() {
 	s.assertSuccessfulResponse()
 }
@@ -75,17 +86,14 @@ func (s *testingSuite) TestHeadlessService() {
 
 func (s *testingSuite) assertSuccessfulResponse() {
 	for _, port := range []int{listenerHighPort, listenerLowPort} {
-		s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-			s.Ctx,
-			testdefaults.CurlPodExecOpt,
-			[]curl.Option{
-				curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-				curl.WithHostHeader("example.com"),
-				curl.WithPort(port),
-			},
+		common.BaseGateway.Send(
+			s.T(),
 			&testmatchers.HttpResponse{
 				StatusCode: http.StatusOK,
 				Body:       gomega.ContainSubstring(testdefaults.NginxResponse),
-			})
+			},
+			curl.WithHostHeader("example.com"),
+			curl.WithPort(port),
+		)
 	}
 }

@@ -5,11 +5,9 @@ package path_matching
 import (
 	"path/filepath"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	e2edefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 )
 
@@ -26,10 +24,9 @@ var (
 		Name:      "gw",
 		Namespace: "default",
 	}
-	gatewayService = &corev1.Service{ObjectMeta: gatewayObjectMeta}
 
 	setup = base.TestCase{
-		Manifests: []string{e2edefaults.CurlPodManifest, setupManifest},
+		Manifests: []string{setupManifest},
 	}
 
 	// test cases

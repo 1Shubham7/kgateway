@@ -8,12 +8,12 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
@@ -28,6 +28,17 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	return &testingSuite{
 		base.NewBaseTestingSuite(ctx, testInst, setup, testCases),
 	}
+}
+
+// SetupSuite sets up the base gateway for native Go HTTP requests
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: gatewayObjectMeta.GetNamespace(),
+		Name:      gatewayObjectMeta.GetName(),
+	})
 }
 
 // BeforeTest runs before each test in the suite
@@ -152,17 +163,13 @@ func (s *testingSuite) TestPrefixRewrite() {
 }
 
 func (s *testingSuite) assertStatus(path string, status int) {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayService.ObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath(path),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: status,
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath(path),
 	)
 }
