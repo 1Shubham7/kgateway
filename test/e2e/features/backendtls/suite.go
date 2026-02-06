@@ -22,9 +22,9 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/plugins/backendtlspolicy"
 	reports "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/reporter"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -61,7 +61,6 @@ var (
 	// base setup manifests (shared between regular and agentgateway)
 	baseSetupManifests = []string{
 		filepath.Join(fsutils.MustGetThisDir(), "testdata/nginx.yaml"),
-		defaults.CurlPodManifest,
 		configMapManifest,
 	}
 
@@ -97,6 +96,15 @@ func NewAgentgatewayTestingSuite(ctx context.Context, testInst *e2e.TestInstalla
 	}
 }
 
+func (s *tsuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjMeta.GetNamespace(),
+		Name:      proxyObjMeta.GetName(),
+	})
+}
+
 func (s *tsuite) TestBackendTLSPolicyAndStatus() {
 	// Load the BackendTLSPolicy before proceeding with tests
 	err := s.TestInstallation.ClusterContext.Client.Get(s.Ctx, client.ObjectKeyFromObject(backendTlsPolicy), backendTlsPolicy)
@@ -113,18 +121,15 @@ func (s *tsuite) TestBackendTLSPolicyAndStatus() {
 		},
 	}
 	for _, tc := range tt {
-		s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-			s.Ctx,
-			defaults.CurlPodExecOpt,
-			[]curl.Option{
-				curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-				curl.WithHostHeader(tc.host),
-				curl.WithPath("/"),
-			},
+		common.BaseGateway.Send(
+			s.T(),
 			&matchers.HttpResponse{
 				StatusCode: http.StatusOK,
 				Body:       gomega.ContainSubstring(defaults.NginxResponse),
 			},
+			curl.WithPort(8080),
+			curl.WithHostHeader(tc.host),
+			curl.WithPath("/"),
 		)
 	}
 
@@ -133,18 +138,15 @@ func (s *tsuite) TestBackendTLSPolicyAndStatus() {
 		// agentgateway does auto host rewrite
 		expectedStatus = http.StatusMovedPermanently
 	}
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			curl.WithHostHeader("foo.com"),
-			curl.WithPath("/"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			// google return 404 this when going to google.com  with host header of "foo.com"
 			StatusCode: expectedStatus,
 		},
+		curl.WithPort(8080),
+		curl.WithHostHeader("foo.com"),
+		curl.WithPath("/"),
 	)
 
 	if s.agentgateway {

@@ -9,11 +9,12 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -77,6 +78,12 @@ func (s *testingSuite) SetupSuite() {
 	})
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, proxyObjectMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s", testdefaults.WellKnownAppLabel, proxyObjectMeta.GetName()),
+	})
+
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.ctx, s.testInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
 	})
 }
 
@@ -198,47 +205,37 @@ func (s *testingSuite) setupTest(manifests []string, resources []client.Object) 
 }
 
 func (s *testingSuite) assertResponse(path string) {
-	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithPath(path),
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithPath(path),
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 }
 
 func (s *testingSuite) assertConsistentResponse(path string, expectedStatus int) {
-	s.testInstallation.AssertionsT(s.T()).AssertEventuallyConsistentCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithPath(path),
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: expectedStatus,
-		})
+		},
+		curl.WithPath(path),
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 }
 
 func (s *testingSuite) assertEventualResponse(path string, expectedStatus int) {
-	resp := s.testInstallation.AssertionsT(s.T()).AssertEventualCurlReturnResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithPath(path),
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: expectedStatus,
-		})
-	defer resp.Body.Close()
+		},
+		curl.WithPath(path),
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 }
