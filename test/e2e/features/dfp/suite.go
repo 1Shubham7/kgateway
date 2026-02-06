@@ -11,11 +11,12 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -49,12 +50,9 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 func (s *testingSuite) SetupSuite() {
 	s.commonManifests = []string{
 		gatewayWithRouteManifest,
-		testdefaults.CurlPodManifest,
 		simpleServiceManifest,
 	}
 	s.commonResources = []client.Object{
-		// resources from curl manifest
-		testdefaults.CurlPod,
 		// resources from service manifest
 		simpleSvc, simpleDeployment,
 		// deployer-generated resources
@@ -70,13 +68,15 @@ func (s *testingSuite) SetupSuite() {
 	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, s.commonResources...)
 
 	// make sure pods are running
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.CurlPodLabelSelector,
-	})
-
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, proxyObjMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s", testdefaults.WellKnownAppLabel, proxyObjMeta.GetName()),
 	}, time.Minute*2)
+
+	// Setup base gateway for native Go HTTP requests (after gateway pods are running)
+	common.SetupBaseGateway(s.ctx, s.testInstallation, types.NamespacedName{
+		Namespace: proxyObjMeta.GetNamespace(),
+		Name:      proxyObjMeta.GetName(),
+	})
 }
 
 func (s *testingSuite) TearDownSuite() {
@@ -123,7 +123,6 @@ func (s *testingSuite) TestDynamicForwardProxyBackend() {
 		s.Run(tc.name, func() {
 			// Build curl options
 			opts := []curl.Option{
-				curl.WithHost(kubeutils.ServiceFQDN(proxyObjMeta)),
 				curl.WithHostHeader(tc.hostname),
 				curl.WithPort(8080),
 			}
@@ -134,22 +133,19 @@ func (s *testingSuite) TestDynamicForwardProxyBackend() {
 			}
 
 			// Test the request
-			s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-				s.ctx,
-				testdefaults.CurlPodExecOpt,
-				opts,
+			common.BaseGateway.Send(
+				s.T(),
 				&testmatchers.HttpResponse{
 					StatusCode: tc.expectedStatus,
 					Body:       gomega.ContainSubstring(tc.expectedUpstreamBodyContents),
-				})
+				},
+				opts...,
+			)
 		})
 	}
 }
 
 func (s *testingSuite) ensureBasicRunning() {
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.WellKnownAppLabel + "=curl",
-	})
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, proxyObjMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: testdefaults.WellKnownAppLabel + "=super-gateway",
 	}, time.Minute)

@@ -13,13 +13,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
@@ -33,7 +34,6 @@ var (
 		filepath.Join(fsutils.MustGetThisDir(), "testdata/base.yaml"),
 		// backend in separate manifest to allow creation independently of routing config
 		filepath.Join(fsutils.MustGetThisDir(), "testdata/backend.yaml"),
-		defaults.CurlPodManifest,
 	}
 
 	proxyObjMeta = metav1.ObjectMeta{
@@ -86,11 +86,6 @@ func (s *testingSuite) TestConfigureBackingDestinationsWithUpstream() {
 
 	// assert the expected resources are created and running before attempting to send traffic
 	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, proxyService, proxyDeployment, backend)
-	// TODO: make this a specific assertion to remove the need for c/p the label selector
-	// e.g. EventuallyCurlPodRunning(...) etc.
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, defaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: defaults.WellKnownAppLabel + "=curl",
-	})
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, nginxMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: defaults.WellKnownAppLabel + "=nginx",
 	})
@@ -98,18 +93,22 @@ func (s *testingSuite) TestConfigureBackingDestinationsWithUpstream() {
 		LabelSelector: defaults.WellKnownAppLabel + "=gw",
 	})
 
-	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			curl.WithHostHeader("example.com"),
-			curl.WithPath("/"),
-		},
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.ctx, s.testInstallation, types.NamespacedName{
+		Namespace: proxyObjMeta.GetNamespace(),
+		Name:      proxyObjMeta.GetName(),
+	})
+
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(defaults.NginxResponse),
-		})
+		},
+		curl.WithHostHeader("example.com"),
+		curl.WithPath("/"),
+		curl.WithPort(8080),
+	)
 
 	s.assertStatus(backend, metav1.Condition{
 		Type:    "Accepted",

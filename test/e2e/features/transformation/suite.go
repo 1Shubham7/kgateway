@@ -68,7 +68,6 @@ var (
 	// test cases
 	setup = base.TestCase{
 		Manifests: []string{
-			defaults.CurlPodManifest,
 			simpleServiceManifest,
 			gatewayManifest,
 			transformForCustomFunctionsManifest,
@@ -804,6 +803,7 @@ func (s *testingSuite) runTestCases(testCases []transformationTestCase) {
 	for _, tc := range testCases {
 		s.T().Run(tc.name, func(t *testing.T) {
 			g := gomega.NewWithT(t)
+			// we need resp so we cant change it
 			resp := s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlReturnResponse(
 				s.Ctx,
 				defaults.CurlPodExecOpt,

@@ -21,9 +21,9 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/shared"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -58,31 +58,25 @@ func (s *testingSuite) SetupSuite() {
 	// define which manifests are applied for each test
 	s.manifests = map[string][]string{
 		"TestBackendConfigPolicy": {
-			testdefaults.CurlPodManifest,
 			setupManifest,
 		},
 		"TestBackendConfigPolicyTLSInsecureSkipVerify": {
-			testdefaults.CurlPodManifest,
 			tlsInsecureManifest,
 			nginxManifest,
 		},
 		"TestBackendConfigPolicySimpleTLS": {
-			testdefaults.CurlPodManifest,
 			simpleTLSManifest,
 			nginxManifest,
 		},
 		"TestBackendConfigPolicyTLSSystemCA": {
-			testdefaults.CurlPodManifest,
 			nginxManifest,
 			systemCAManifest,
 		},
 		"TestBackendConfigPolicyOutlierDetection": {
-			testdefaults.CurlPodManifest,
 			setupManifest,
 			outlierDetectionManifest,
 		},
 		"TestBackendConfigPolicyClearStaleStatus": {
-			testdefaults.CurlPodManifest,
 			setupManifest,
 		},
 	}
@@ -107,14 +101,17 @@ func (s *testingSuite) BeforeTest(suiteName, testName string) {
 	}
 
 	// wait for common resources for all tests
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.CurlPodLabelSelector,
-	})
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, proxyObjectMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: testdefaults.WellKnownAppLabel + "=gw",
 	})
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, nginxPod.ObjectMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: testdefaults.WellKnownAppLabel + "=nginx",
+	})
+
+	// Setup base gateway for native Go HTTP requests (after gateway pods are running)
+	common.SetupBaseGateway(s.ctx, s.testInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
 	})
 }
 
@@ -139,18 +136,14 @@ func (s *testingSuite) TestBackendConfigPolicy() {
 	})
 
 	// Should have a successful response
-	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(testdefaults.NginxResponse),
 		},
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
 	)
 
 	// envoy config should reflect the backend config policy
@@ -225,50 +218,38 @@ func (s *testingSuite) TestBackendConfigPolicy() {
 }
 
 func (s *testingSuite) TestBackendConfigPolicyTLSInsecureSkipVerify() {
-	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			curl.WithPath("/"),
-			curl.WithPort(8080),
-			curl.WithHeadersOnly(),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 		},
+		curl.WithPath("/"),
+		curl.WithPort(8080),
+		curl.WithHeadersOnly(),
 	)
 }
 
 func (s *testingSuite) TestBackendConfigPolicySimpleTLS() {
-	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			curl.WithPath("/"),
-			curl.WithPort(8080),
-			curl.WithHeadersOnly(),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 		},
+		curl.WithPath("/"),
+		curl.WithPort(8080),
+		curl.WithHeadersOnly(),
 	)
 }
 
 func (s *testingSuite) TestBackendConfigPolicyTLSSystemCA() {
 	// self-signed upstream should fail when using system CA certificates
-	s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithPort(8080),
-			curl.WithHeadersOnly(),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusServiceUnavailable, // 503 expected on TLS validation failure
 		},
+		curl.WithPort(8080),
+		curl.WithHeadersOnly(),
 	)
 }
 
@@ -279,9 +260,6 @@ func (s *testingSuite) TestBackendConfigPolicyOutlierDetection() {
 	// many backends are rejected. We use the 'stats' API in Envoy to verify
 	// that rejection functions as expected.
 
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.CurlPodLabelSelector,
-	})
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, nginxPod.ObjectMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: testdefaults.WellKnownAppLabel + "=nginx",
 	})
@@ -301,19 +279,16 @@ func (s *testingSuite) TestBackendConfigPolicyOutlierDetection() {
 			expectedStatusCode = 200
 		}
 		path := fmt.Sprintf("/status/%v", expectedStatusCode)
-		s.testInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-			s.ctx,
-			testdefaults.CurlPodExecOpt,
-			[]curl.Option{
-				curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-				curl.WithHostHeader("httpbin.example.com"),
-				curl.WithPort(8080),
-				curl.WithPath(path),
-			},
+		common.BaseGateway.Send(
+			s.T(),
 			&testmatchers.HttpResponse{
 				StatusCode: expectedStatusCode,
 			},
+			curl.WithHostHeader("httpbin.example.com"),
+			curl.WithPort(8080),
+			curl.WithPath(path),
 		)
+
 		time.Sleep(10 * time.Millisecond) // see also OutlierDetection.Interval
 	}
 

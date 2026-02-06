@@ -17,11 +17,12 @@ import (
 	"github.com/stretchr/testify/suite"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -48,16 +49,10 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 func (s *testingSuite) SetupSuite() {
 	err := s.ti.Actions.Kubectl().ApplyFile(s.ctx, setupManifest)
 	s.NoError(err, "can apply "+setupManifest)
-	err = s.ti.Actions.Kubectl().ApplyFile(s.ctx, testdefaults.CurlPodManifest)
-	s.NoError(err, "can apply curl pod manifest")
 	err = s.ti.Actions.Kubectl().ApplyFile(s.ctx, awsCliPodManifest)
 	s.NoError(err, "can apply aws-cli pod manifest")
 
-	s.ti.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, testdefaults.CurlPod)
-	s.ti.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.WellKnownAppLabel + "=curl",
-	})
-	s.ti.AssertionsT(s.T()).EventuallyPodReady(s.ctx, "lambda-test", "aws-cli", 30*time.Second)
+	s.ti.AssertionsT(s.T()).EventuallyPodReady(s.ctx, "lambda-test", "aws-cli", 5*time.Minute)
 
 	s.manifests = map[string][]string{
 		"TestLambdaBackendRouting":      {lambdaBackendManifest},
@@ -75,8 +70,6 @@ func (s *testingSuite) TearDownSuite() {
 	}
 	err := s.ti.Actions.Kubectl().DeleteFileSafe(s.ctx, setupManifest)
 	s.NoError(err, "can delete setup manifest")
-	err = s.ti.Actions.Kubectl().DeleteFileSafe(s.ctx, testdefaults.CurlPodManifest)
-	s.NoError(err, "can delete curl pod manifest")
 }
 
 func (s *testingSuite) BeforeTest(suiteName, testName string) {
@@ -105,15 +98,16 @@ func (s *testingSuite) BeforeTest(suiteName, testName string) {
 		s.Require().NoError(err, "can apply manifest "+manifest)
 	}
 
-	s.ti.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, testdefaults.CurlPod)
-	s.ti.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
-		LabelSelector: testdefaults.WellKnownAppLabel + "=curl",
-	})
-
 	s.ti.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, proxyServiceMeta)
 	s.ti.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, proxyDeploymentMeta)
 	s.ti.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, proxyDeploymentMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s", testdefaults.WellKnownAppLabel, gatewayName),
+	})
+
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.ctx, s.ti, types.NamespacedName{
+		Namespace: proxyDeploymentMeta.GetNamespace(),
+		Name:      gatewayName,
 	})
 }
 
@@ -130,34 +124,20 @@ func (s *testingSuite) AfterTest(suiteName, testName string) {
 
 func (s *testingSuite) TestLambdaBackendRouting() {
 	// Test Lambda backend with custom endpoint
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(`Hello from Lambda`),
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda"),
 	)
 
 	// Test Lambda backend with Envoy payload transformation disabled
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda/no-payload-transform"),
-			curl.WithBody("{}"), // JSON payload is a requirement when Envoy payload transformation is disabled
-		},
-		// Ensure the JSON transformation Envoy applies are not a part of the lambda's response body:
-		// https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/aws_lambda_filter#configuration-as-a-listener-filter
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body: gomega.And(
@@ -169,89 +149,73 @@ func (s *testingSuite) TestLambdaBackendRouting() {
 				gomega.Not(gomega.ContainSubstring(`is_base64_encoded`)),
 			),
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda/no-payload-transform"),
+		curl.WithBody("{}"), // JSON payload is a requirement when Envoy payload transformation is disabled
 	)
 }
 
 func (s *testingSuite) TestLambdaBackendAsyncRouting() {
 	// Test Lambda backend with custom endpoint
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusAccepted,
 			Body:       gomega.BeEmpty(),
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda"),
 	)
 }
 
 func (s *testingSuite) TestLambdaBackendQualifier() {
 	// Test Lambda backend with the prod qualifier
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda/prod"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(`"message":"Hello from Lambda prod"`),
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda/prod"),
 	)
 
 	// Test Lambda backend with the dev qualifier
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda/dev"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(`"message":"Hello from Lambda dev"`),
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda/dev"),
 	)
 
 	// Test Lambda backend with the latest qualifier
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda/latest"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(`"message":"Hello from Lambda $LATEST"`),
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda/latest"),
 	)
 
 	// Test non-existent qualifier returns 404
-	s.ti.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/lambda/nonexistent"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusNotFound,
 		},
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/lambda/nonexistent"),
 	)
 }
 
