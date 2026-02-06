@@ -10,12 +10,13 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -51,7 +52,7 @@ func NewTestingSuiteKgateway(ctx context.Context, testInst *e2e.TestInstallation
 			},
 			map[string]*base.TestCase{
 				"TestZeroDowntimeRollout": {
-					Manifests: []string{gatewayManifest, defaults.CurlPodManifest},
+					Manifests: []string{gatewayManifest},
 				},
 			},
 		),
@@ -65,16 +66,20 @@ func (s *testingSuiteKgateway) TestZeroDowntimeRollout() {
 			LabelSelector: defaults.WellKnownAppLabel + "=" + proxyObjectMeta.GetName(),
 		})
 
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("example.com"),
-		},
+	// Setup base gateway for native Go HTTP requests (must be after gateway pods are running)
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
+
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 
 	kCli := kubectl.NewCli()
 
@@ -125,7 +130,7 @@ func NewTestingSuiteAgentgateway(ctx context.Context, testInst *e2e.TestInstalla
 			},
 			map[string]*base.TestCase{
 				"TestZeroDowntimeRolloutAgentgateway": {
-					Manifests: []string{agentgatewayManifest, defaults.CurlPodManifest},
+					Manifests: []string{agentgatewayManifest},
 				},
 			},
 		),
@@ -139,16 +144,14 @@ func (s *testingSuiteAgentgateway) TestZeroDowntimeRolloutAgentgateway() {
 			LabelSelector: defaults.WellKnownAppLabel + "=" + agentgatewayObjectMeta.GetName(),
 		})
 
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(agentgatewayObjectMeta)),
-			curl.WithHostHeader("example.com"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 
 	kCli := kubectl.NewCli()
 

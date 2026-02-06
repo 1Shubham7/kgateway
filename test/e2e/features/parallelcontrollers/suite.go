@@ -14,14 +14,15 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/helmutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/helper"
@@ -35,7 +36,6 @@ var (
 	setup = base.TestCase{
 		Manifests: []string{
 			defaults.HttpbinManifest,
-			defaults.CurlPodManifest,
 		},
 	}
 
@@ -64,13 +64,6 @@ func (s *testingSuite) BeforeTest(suiteName, testName string) {
 		httpbinObjectMeta.GetNamespace(),
 		metav1.ListOptions{
 			LabelSelector: defaults.WellKnownAppLabel + "=" + httpbinObjectMeta.GetName(),
-		})
-
-	// Ensure curl pod is ready (setup manifests are applied in SetupSuite)
-	s.TestInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.Ctx,
-		defaults.CurlPod.GetNamespace(),
-		metav1.ListOptions{
-			LabelSelector: defaults.CurlPodLabelSelector,
 		})
 
 	// Skip the base suite's automatic test manifest application
@@ -209,18 +202,21 @@ func (s *testingSuite) TestEnvoyOnly() {
 			LabelSelector: defaults.WellKnownAppLabel + "=" + envoyGwEnvoyOnlyMeta.GetName(),
 		})
 
+	// Set up base gateway for this test
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: envoyGwEnvoyOnlyMeta.GetNamespace(),
+		Name:      envoyGwEnvoyOnlyMeta.GetName(),
+	})
+
 	// Verify traffic works through Envoy Gateway
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(envoyGwEnvoyOnlyMeta)),
-			curl.WithHostHeader("envoy-envoy-only.example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithHostHeader("envoy-envoy-only.example.com"),
+		curl.WithPort(8080),
+	)
 
 	// Assert that Agentgateway Gateway is NOT provisioned
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Consistently(func(g gomega.Gomega) {
@@ -323,18 +319,21 @@ func (s *testingSuite) TestAgentgatewayOnly() {
 			LabelSelector: defaults.WellKnownAppLabel + "=" + agwGwAgwOnlyMeta.GetName(),
 		})
 
+	// Set up base gateway for this test
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: agwGwAgwOnlyMeta.GetNamespace(),
+		Name:      agwGwAgwOnlyMeta.GetName(),
+	})
+
 	// Verify traffic works through Agentgateway Gateway
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(agwGwAgwOnlyMeta)),
-			curl.WithHostHeader("agw-agw-only.example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithHostHeader("agw-agw-only.example.com"),
+		curl.WithPort(8080),
+	)
 
 	// Assert that Envoy Gateway is NOT provisioned
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Consistently(func(g gomega.Gomega) {
@@ -499,31 +498,37 @@ func (s *testingSuite) TestBothEnabled() {
 			LabelSelector: defaults.WellKnownAppLabel + "=" + agwGwBothEnabledMeta.GetName(),
 		})
 
+	// Set up base gateway for Envoy
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: envoyGwBothEnabledMeta.GetNamespace(),
+		Name:      envoyGwBothEnabledMeta.GetName(),
+	})
+
 	// Verify traffic works through Envoy Gateway
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(envoyGwBothEnabledMeta)),
-			curl.WithHostHeader("envoy-both-enabled.example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithHostHeader("envoy-both-enabled.example.com"),
+		curl.WithPort(8080),
+	)
+
+	// Set up base gateway for Agentgateway
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: agwGwBothEnabledMeta.GetNamespace(),
+		Name:      agwGwBothEnabledMeta.GetName(),
+	})
 
 	// Verify traffic works through Agentgateway Gateway
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(agwGwBothEnabledMeta)),
-			curl.WithHostHeader("agw-both-enabled.example.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
-		})
+		},
+		curl.WithHostHeader("agw-both-enabled.example.com"),
+		curl.WithPort(8080),
+	)
 
 	// Verify that the Deployments use the correct charts
 	s.verifyEnvoyDeployment(envoyGwBothEnabledMeta)

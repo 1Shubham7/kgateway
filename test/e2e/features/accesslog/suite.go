@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -38,6 +39,11 @@ func (s *testingSuite) SetupSuite() {
 	s.BaseTestingSuite.SetupSuite()
 
 	s.TestInstallation.Assertions.EventuallyHTTPRouteCondition(s.Ctx, "httpbin", "httpbin", gwv1.RouteConditionAccepted, metav1.ConditionTrue)
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: gatewayObjectMeta.GetNamespace(),
+		Name:      gatewayObjectMeta.GetName(),
+	})
 }
 
 func (s *testingSuite) BeforeTest(suiteName, testName string) {
@@ -107,19 +113,15 @@ func (s *testingSuite) TestAccessLogWithOTelSink() {
 }
 
 func (s *testingSuite) sendTestRequest() {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayObjectMeta)),
-			curl.VerboseOutput(),
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPath("/status/200"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: http.StatusOK,
 		},
+		curl.VerboseOutput(),
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPath("/status/200"),
+		curl.WithPort(8080),
 	)
 }
 

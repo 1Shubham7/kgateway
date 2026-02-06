@@ -15,9 +15,9 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -36,6 +36,12 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 }
 
 func (s *testingSuite) TestLeaderAndFollowerAction() {
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
+
 	leader := s.getLeader()
 
 	// Scale the deployment to 2 replicas so the other can take over when the leader is killed
@@ -200,19 +206,16 @@ func (s *testingSuite) killLeader(leader string) {
 }
 
 func (s *testingSuite) assertCurlResponseCode(code int) {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHostHeader("www.example.com"),
-			curl.WithPath("/status/200"),
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-		},
+	// Note: Migrated from AssertEventualCurlResponse with custom timeout (20s, 2s)
+	// BaseGateway.Send() uses framework default timeouts instead
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: code,
 		},
-		20*time.Second,
-		2*time.Second,
+		curl.WithPort(8080),
+		curl.WithHostHeader("www.example.com"),
+		curl.WithPath("/status/200"),
 	)
 }
 

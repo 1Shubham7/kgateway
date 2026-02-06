@@ -11,12 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"
 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics/metricstest"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	e2edefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -42,6 +44,15 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	}
 }
 
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
+}
+
 func (s *testingSuite) checkPodsRunning() {
 	s.TestInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.Ctx, kgatewayMetricsObjectMeta.GetNamespace(), metav1.ListOptions{
 		LabelSelector: e2edefaults.WellKnownAppLabel + "=kgateway",
@@ -53,18 +64,15 @@ func (s *testingSuite) testMetrics(useListenerSets bool) {
 	s.checkPodsRunning()
 
 	// Verify the test services are created and working.
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		e2edefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("example1.com"),
-			curl.WithPort(8080),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring(e2edefaults.NginxResponse),
-		})
+		},
+		curl.WithHostHeader("example1.com"),
+		curl.WithPort(8080),
+	)
 
 	// Verify the control plane metrics are generating as expected.
 	s.TestInstallation.AssertionsT(s.T()).Assert.EventuallyWithT(func(c *assert.CollectT) {
