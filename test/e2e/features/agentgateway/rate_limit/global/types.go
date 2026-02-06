@@ -16,17 +16,15 @@ import (
 
 const (
 	// test namespace for proxy resources
-	namespace = "default"
+	namespace = "agentgateway-base"
 	// test namespace for ratelimit resources
 	extensionsNamespace = "kgateway-test-extensions"
 	// test service name
-	serviceName = "backend-0"
+	serviceName = "backend"
 )
 
 var (
 	// paths to test manifests
-	agwCommonManifest         = getTestFile("common.yaml")
-	simpleServiceManifest     = getTestFile("service.yaml")
 	httpRoutesManifest        = getTestFile("routes.yaml")
 	ipRateLimitManifest       = getTestFile("ip-rate-limit.yaml")
 	pathRateLimitManifest     = getTestFile("path-rate-limit.yaml")
@@ -34,14 +32,14 @@ var (
 	combinedRateLimitManifest = getTestFile("combined-rate-limit.yaml")
 	rateLimitServerManifest   = getTestFile("rate-limit-server.yaml")
 
-	// metadata for gateway - matches the name "super-gateway" from common.yaml
-	gatewayObjectMeta = metav1.ObjectMeta{Name: "super-gateway", Namespace: namespace}
+	// metadata for gateway - matches the name "gateway" from SetupBaseGateway
+	gatewayObjectMeta = metav1.ObjectMeta{Name: "gateway", Namespace: namespace}
 	gateway           = &gwv1.Gateway{
 		ObjectMeta: gatewayObjectMeta,
 	}
 
 	// metadata for proxy resources
-	proxyObjectMeta = metav1.ObjectMeta{Name: "super-gateway", Namespace: namespace}
+	proxyObjectMeta = metav1.ObjectMeta{Name: "gateway", Namespace: namespace}
 
 	proxyDeployment = &appsv1.Deployment{
 		ObjectMeta: proxyObjectMeta,
@@ -53,22 +51,7 @@ var (
 		ObjectMeta: proxyObjectMeta,
 	}
 
-	// metadata for backend service
-	serviceMeta = metav1.ObjectMeta{
-		Namespace: namespace,
-		Name:      serviceName,
-	}
-
-	simpleSvc = &corev1.Service{
-		ObjectMeta: serviceMeta,
-	}
-
-	simpleDeployment = &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: namespace,
-			Name:      serviceName,
-		},
-	}
+	// Note: backend service and deployment are provided by SetupBaseGateway
 
 	// metadata for rate limit service
 	rateLimitObjectMeta = metav1.ObjectMeta{Name: "ratelimit", Namespace: extensionsNamespace}
