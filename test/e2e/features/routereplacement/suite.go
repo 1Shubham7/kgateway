@@ -9,11 +9,12 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -78,6 +79,11 @@ func (s *testingSuite) TearDownSuite() {
 
 func (s *testingSuite) BeforeTest(suiteName, testName string) {
 	s.BaseTestingSuite.BeforeTest(suiteName, testName)
+
+	// Setup base gateway for native Go HTTP requests after pods are ready
+	s.TestInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.Ctx, proxyObjectMeta.Namespace, metav1.ListOptions{
+		LabelSelector: testdefaults.WellKnownAppLabel + "=" + proxyObjectMeta.Name,
+	})
 }
 
 // TestRouteAttachedInvalidPolicy tests that routes with valid configuration
@@ -92,21 +98,17 @@ func (s *testingSuite) TestRouteAttachedInvalidPolicy() {
 		metav1.ConditionFalse,
 	)
 
-	// Verify that a route with an invalid policy is replaced with a 500 direct response
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("invalid-policy.example.com"),
-			curl.WithPort(gatewayPort),
-			curl.WithPath("/headers"),
-			curl.WithHeader("x-test-header", "some-value-with-policy"),
-		},
+	//  Verify that a route with an invalid policy is replaced with a 500 direct response
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusInternalServerError,
 			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
+		curl.WithHostHeader("invalid-policy.example.com"),
+		curl.WithPort(gatewayPort),
+		curl.WithPath("/headers"),
+		curl.WithHeader("x-test-header", "some-value-with-policy"),
 	)
 }
 
@@ -122,19 +124,15 @@ func (s *testingSuite) TestInvalidMatcherDropsRoute() {
 	)
 
 	// Verify that the route was dropped (no route should exist, so we should get 404)
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("invalid-matcher.example.com"),
-			curl.WithPort(gatewayPort),
-			curl.WithPath("/headers"),
-			curl.WithHeader("x-test-header", "some-value"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusNotFound,
 		},
+		curl.WithHostHeader("invalid-matcher.example.com"),
+		curl.WithPort(gatewayPort),
+		curl.WithPath("/headers"),
+		curl.WithHeader("x-test-header", "some-value"),
 	)
 }
 
@@ -151,19 +149,15 @@ func (s *testingSuite) TestInvalidRouteRuleFilter() {
 	)
 
 	// Verify that a route with an invalid built-in policy is replaced with a 500 direct response
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
-			curl.WithHostHeader("invalid-config.example.com"),
-			curl.WithPort(gatewayPort),
-			curl.WithPath("/headers"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusInternalServerError,
 			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
+		curl.WithHostHeader("invalid-config.example.com"),
+		curl.WithPort(gatewayPort),
+		curl.WithPath("/headers"),
 	)
 }
 
@@ -195,36 +189,42 @@ func (s *testingSuite) TestGatewayWideInvalidPolicy() {
 		metav1.ConditionTrue,
 	)
 
-	// Verify that route on port 8080 is replaced with 500 response
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
+	// Get address for the specific gateway used in this test
+	addr := s.TestInstallation.AssertionsT(s.T()).EventuallyGatewayAddress(
 		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayWideProxyObjectMeta)),
-			curl.WithHostHeader("gateway-wide-8080.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
+		gatewayWideProxyObjectMeta.Name,
+		gatewayWideProxyObjectMeta.Namespace,
+	)
+	gw := common.Gateway{
+		NamespacedName: types.NamespacedName{
+			Namespace: gatewayWideProxyObjectMeta.Namespace,
+			Name:      gatewayWideProxyObjectMeta.Name,
 		},
+		Address: addr,
+	}
+
+	// Verify that route on port 8080 is replaced with 500 response
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusInternalServerError,
 			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
+		curl.WithHostHeader("gateway-wide-8080.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
 	)
 
 	// Verify that route on port 8081 is also replaced with 500 response (gateway-wide effect)
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gatewayWideProxyObjectMeta)),
-			curl.WithHostHeader("gateway-wide-8081.example.com"),
-			curl.WithPort(8081),
-			curl.WithPath("/headers"),
-		},
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusInternalServerError,
 			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
+		curl.WithHostHeader("gateway-wide-8081.example.com"),
+		curl.WithPort(8081),
+		curl.WithPath("/headers"),
 	)
 }
 
@@ -256,35 +256,41 @@ func (s *testingSuite) TestListenerSpecificInvalidPolicy() {
 		metav1.ConditionTrue,
 	)
 
-	// Verify that route on affected listener is replaced with 500 response
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
+	// Get address for the specific gateway used in this test
+	addr := s.TestInstallation.AssertionsT(s.T()).EventuallyGatewayAddress(
 		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(listenerSpecificProxyObjectMeta)),
-			curl.WithHostHeader("listener-affected.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
+		listenerSpecificProxyObjectMeta.Name,
+		listenerSpecificProxyObjectMeta.Namespace,
+	)
+	gw := common.Gateway{
+		NamespacedName: types.NamespacedName{
+			Namespace: listenerSpecificProxyObjectMeta.Namespace,
+			Name:      listenerSpecificProxyObjectMeta.Name,
 		},
+		Address: addr,
+	}
+
+	// Verify that route on affected listener is replaced with 500 response
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusInternalServerError,
 			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
+		curl.WithHostHeader("listener-affected.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
 	)
 
 	// Verify that route on unaffected listener continues to work normally
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(listenerSpecificProxyObjectMeta)),
-			curl.WithHostHeader("listener-unaffected.example.com"),
-			curl.WithPort(8081),
-			curl.WithPath("/headers"),
-		},
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 		},
+		curl.WithHostHeader("listener-unaffected.example.com"),
+		curl.WithPort(8081),
+		curl.WithPath("/headers"),
 	)
 }
 
@@ -323,50 +329,52 @@ func (s *testingSuite) TestListenerSpecificIsolation() {
 		metav1.ConditionTrue,
 	)
 
-	// Verify that route on affected listener (port 8080) is replaced with 500 response
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
+	// Get address for the specific gateway used in this test
+	addr := s.TestInstallation.AssertionsT(s.T()).EventuallyGatewayAddress(
 		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(listenerIsolationProxyObjectMeta)),
-			curl.WithHostHeader("affected.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
+		listenerIsolationProxyObjectMeta.Name,
+		listenerIsolationProxyObjectMeta.Namespace,
+	)
+	gw := common.Gateway{
+		NamespacedName: types.NamespacedName{
+			Namespace: listenerIsolationProxyObjectMeta.Namespace,
+			Name:      listenerIsolationProxyObjectMeta.Name,
 		},
+		Address: addr,
+	}
+
+	// Verify that route on affected listener (port 8080) is replaced with 500 response
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusInternalServerError,
 			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
+		curl.WithHostHeader("affected.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
 	)
 
 	// Verify that unaffected route on same port (port 8080) continues working normally
 	// (policy is attached specifically to listener, not port-wide)
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(listenerIsolationProxyObjectMeta)),
-			curl.WithHostHeader("unaffected.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
-		},
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 		},
+		curl.WithHostHeader("unaffected.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
 	)
 
 	// Verify that isolated route on different port (port 8081) continues to work normally
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(listenerIsolationProxyObjectMeta)),
-			curl.WithHostHeader("isolated.example.com"),
-			curl.WithPort(8081),
-			curl.WithPath("/headers"),
-		},
+	gw.Send(
+		s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 		},
+		curl.WithHostHeader("isolated.example.com"),
+		curl.WithPort(8081),
+		curl.WithPath("/headers"),
 	)
 }

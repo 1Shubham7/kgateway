@@ -5,10 +5,12 @@ package tests_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	. "github.com/kgateway-dev/kgateway/v2/test/e2e/tests"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/install"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -49,6 +51,9 @@ func TestRouteReplacement(t *testing.T) {
 
 	// Install kgateway
 	testInstallation.InstallKgatewayFromLocalChart(ctx, t)
+
+	common.SetupBaseConfig(ctx, t, testInstallation, filepath.Join("..", "features", "routereplacement", "testdata", "setup.yaml"))
+	common.SetupDefaultBaseGateway(ctx, testInstallation)
 
 	RouteReplacementSuiteRunner().Run(ctx, t, testInstallation)
 }

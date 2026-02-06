@@ -12,12 +12,12 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
@@ -32,6 +32,15 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	return &testingSuite{
 		base.NewBaseTestingSuite(ctx, testInst, setup, testCases),
 	}
+}
+
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
 }
 
 func (s *testingSuite) TestOTelTracing() {
@@ -51,20 +60,16 @@ func (s *testingSuite) testOTelTracing() {
 	headerValue := fmt.Sprintf("%v", rand.Intn(10000)) //nolint:gosec // G404: Using math/rand for test trace identification is acceptable
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 		// make curl request to httpbin service with the custom header
-		s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-			s.Ctx,
-			defaults.CurlPodExecOpt,
-			[]curl.Option{
-				curl.WithHostHeader("www.example.com"),
-				curl.WithHeader("x-header-tag", headerValue),
-				curl.WithPath("/status/200"),
-				curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			},
+		// make curl request to httpbin service with the custom header
+		common.BaseGateway.Send(
+			s.T(),
 			&matchers.HttpResponse{
 				StatusCode: 200,
 			},
-			20*time.Second,
-			2*time.Second,
+			curl.WithHostHeader("www.example.com"),
+			curl.WithHeader("x-header-tag", headerValue),
+			curl.WithPath("/status/200"),
+			curl.WithPort(8080),
 		)
 
 		// Example trace found in the otel-collector logs

@@ -13,9 +13,9 @@ import (
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
@@ -71,14 +71,18 @@ func (s *testingSuite) TestConfigureHTTPRouteBackingDestinationsWithService() {
 		LabelSelector: defaults.WellKnownAppLabel + "=gw",
 	})
 
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			curl.WithHostHeader("example.com"),
-		},
-		expectedSvcResp)
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
+
+	common.BaseGateway.Send(
+		s.T(),
+		expectedSvcResp,
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 }
 
 func (s *testingSuite) TestConfigureHTTPRouteBackingDestinationsWithServiceAndWithoutTCPRoute() {
@@ -118,14 +122,18 @@ func (s *testingSuite) TestConfigureHTTPRouteBackingDestinationsWithServiceAndWi
 		LabelSelector: defaults.WellKnownAppLabel + "=gw",
 	})
 
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		defaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(proxyService.ObjectMeta)),
-			curl.WithHostHeader("example.com"),
-		},
-		expectedSvcResp)
+	// Setup base gateway for native Go HTTP requests
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
+
+	common.BaseGateway.Send(
+		s.T(),
+		expectedSvcResp,
+		curl.WithHostHeader("example.com"),
+		curl.WithPort(8080),
+	)
 }
 
 func (s *testingSuite) TestClearStaleStatus() {

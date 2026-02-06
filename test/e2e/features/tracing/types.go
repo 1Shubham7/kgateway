@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	e2edefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 )
 
@@ -28,7 +27,7 @@ var (
 	proxyService = &corev1.Service{ObjectMeta: proxyObjectMeta}
 
 	setup = base.TestCase{
-		Manifests: []string{e2edefaults.CurlPodManifest, setupManifest},
+		Manifests: []string{setupManifest},
 	}
 
 	// test cases

@@ -37,6 +37,13 @@ func SetupBaseGateway(ctx context.Context, installation *e2e.TestInstallation, n
 	}
 }
 
+func SetupDefaultBaseGateway(ctx context.Context, installation *e2e.TestInstallation) {
+	SetupBaseGateway(ctx, installation, types.NamespacedName{
+		Namespace: "default",
+		Name:      "gw",
+	})
+}
+
 type Gateway struct {
 	types.NamespacedName
 	Address string
