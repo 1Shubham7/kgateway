@@ -41,10 +41,10 @@ var (
 		Body:       nil,
 	}
 
-	commonSetupManifests = []string{defaults.HttpbinManifest, defaults.CurlPodManifest}
+	commonSetupManifests = defaults.HttpbinManifest
 	// Base test setup - common infrastructure for all tests
 	setup = base.TestCase{
-		Manifests: append([]string{setupManifest}, commonSetupManifests...),
+		Manifests: append([]string{setupManifest}, commonSetupManifests),
 	}
 
 	// Individual test cases - test-specific manifests and resources

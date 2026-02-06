@@ -9,10 +9,11 @@ import (
 
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
+	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
@@ -32,7 +33,6 @@ type testingSuite struct {
 func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.TestingSuite {
 	setup := base.TestCase{
 		Manifests: []string{
-			testdefaults.CurlPodManifest,
 			testdefaults.HttpbinManifest,
 		},
 	}
@@ -53,23 +53,28 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	}
 }
 
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: gateway.GetNamespace(),
+		Name:      gateway.GetName(),
+	})
+}
+
 // TestTLSControlPlaneBasicFunctionality validates that the control plane with TLS enabled
 // can successfully configure a basic Gateway and route traffic.
 func (s *testingSuite) TestTLSControlPlaneBasicFunctionality() {
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gateway.ObjectMeta)),
-			curl.WithHostHeader("test.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
-			curl.WithScheme("http"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring("test.example.com"),
 		},
+		curl.WithHostHeader("test.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
+		curl.WithScheme("http"),
 	)
 }
 
@@ -77,20 +82,16 @@ func (s *testingSuite) TestTLSControlPlaneBasicFunctionality() {
 // rotation correctly by updating the TLS secret and verifying continued operation.
 func (s *testingSuite) TestTLSCertificateRotation() {
 	// validate initial traffic works with the original certificate
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gateway.ObjectMeta)),
-			curl.WithHostHeader("test.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
-			curl.WithScheme("http"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring("test.example.com"),
 		},
+		curl.WithHostHeader("test.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
+		curl.WithScheme("http"),
 	)
 
 	// generate a new certificate for rotation and update Secret
@@ -106,19 +107,15 @@ func (s *testingSuite) TestTLSCertificateRotation() {
 	time.Sleep(10 * time.Second)
 
 	// verify traffic still works after rotation
-	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		[]curl.Option{
-			curl.WithHost(kubeutils.ServiceFQDN(gateway.ObjectMeta)),
-			curl.WithHostHeader("test.example.com"),
-			curl.WithPort(8080),
-			curl.WithPath("/headers"),
-			curl.WithScheme("http"),
-		},
+	common.BaseGateway.Send(
+		s.T(),
 		&matchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       gomega.ContainSubstring("test.example.com"),
 		},
+		curl.WithHostHeader("test.example.com"),
+		curl.WithPort(8080),
+		curl.WithPath("/headers"),
+		curl.WithScheme("http"),
 	)
 }

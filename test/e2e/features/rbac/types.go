@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
@@ -26,7 +25,6 @@ var (
 		Name:      "gw",
 		Namespace: "default",
 	}
-	gatewayService = &corev1.Service{ObjectMeta: gatewayObjectMeta}
 
 	expectStatus200Success = &matchers.HttpResponse{
 		StatusCode: http.StatusOK,
@@ -37,10 +35,10 @@ var (
 		Body:       gomega.ContainSubstring("RBAC: access denied"),
 	}
 
-	commonSetupManifests = []string{defaults.HttpbinManifest, defaults.CurlPodManifest}
+	commonSetupManifests = defaults.HttpbinManifest
 	// Base test setup - common infrastructure for all tests
 	setup = base.TestCase{
-		Manifests: append([]string{setupManifest}, commonSetupManifests...),
+		Manifests: []string{setupManifest, commonSetupManifests},
 	}
 
 	// Individual test cases - test-specific manifests and resources

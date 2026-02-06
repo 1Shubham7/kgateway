@@ -7,11 +7,11 @@ import (
 	"net/http"
 
 	"github.com/stretchr/testify/suite"
+	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
@@ -27,6 +27,15 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	return &testingSuite{
 		base.NewBaseTestingSuite(ctx, testInst, setup, testCases),
 	}
+}
+
+func (s *testingSuite) SetupSuite() {
+	s.BaseTestingSuite.SetupSuite()
+
+	common.SetupBaseGateway(s.Ctx, s.TestInstallation, types.NamespacedName{
+		Namespace: proxyObjectMeta.GetNamespace(),
+		Name:      proxyObjectMeta.GetName(),
+	})
 }
 
 func (s *testingSuite) TestRouteLevelCSRF() {
@@ -119,15 +128,13 @@ func (s *testingSuite) assertPreflightResponse(path string, expectedStatus int, 
 	allOptions := append([]curl.Option{
 		curl.WithMethod("POST"),
 		curl.WithPath(path),
-		curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
 		curl.WithHostHeader("example.com"),
 		curl.WithPort(8080),
 	}, options...)
 
-	s.TestInstallation.AssertionsT(s.T()).AssertEventuallyConsistentCurlResponse(
-		s.Ctx,
-		testdefaults.CurlPodExecOpt,
-		allOptions,
+	common.BaseGateway.Send(
+		s.T(),
 		&testmatchers.HttpResponse{StatusCode: expectedStatus},
+		allOptions...,
 	)
 }
