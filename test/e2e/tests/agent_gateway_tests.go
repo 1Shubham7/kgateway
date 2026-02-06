@@ -32,7 +32,6 @@ func AgentgatewaySuiteRunner() e2e.SuiteRunner {
 	agentgatewaySuiteRunner.Register("A2A", a2a.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("BasicRouting", agentgateway.NewTestingSuite)
 
-	agentgatewaySuiteRunner.Register("AIBackend", aibackend.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("ConfigMap", configmap.NewTestingSuite) // redeploys by need
 	agentgatewaySuiteRunner.Register("RemoteJwtAuth", remotejwtauth.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("Tracing", tracing.NewTestingSuite)
@@ -43,6 +42,7 @@ func AgentgatewaySuiteRunner() e2e.SuiteRunner {
 	agentgatewaySuiteRunner.Register("LocalRateLimit", local_rate_limit.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("GlobalRateLimit", global_rate_limit.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("MCP", mcp.NewTestingSuite)
+	agentgatewaySuiteRunner.Register("AIBackend", aibackend.NewTestingSuite)
 
 	agentgatewaySuiteRunner.Register("CSRF", csrf.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("LocalRateLimit", local_rate_limit.NewTestingSuite)
