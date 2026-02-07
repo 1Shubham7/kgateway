@@ -31,10 +31,7 @@ func AgentgatewaySuiteRunner() e2e.SuiteRunner {
 	// Slow tests not yet migrated to use the more modern testing approach
 	agentgatewaySuiteRunner.Register("A2A", a2a.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("BasicRouting", agentgateway.NewTestingSuite)
-
-	agentgatewaySuiteRunner.Register("ConfigMap", configmap.NewTestingSuite) // redeploys by need
 	agentgatewaySuiteRunner.Register("RemoteJwtAuth", remotejwtauth.NewTestingSuite)
-	agentgatewaySuiteRunner.Register("Tracing", tracing.NewTestingSuite)
 
 	// Fast tests
 	agentgatewaySuiteRunner.Register("Extauth", extauth.NewTestingSuite)
@@ -43,7 +40,8 @@ func AgentgatewaySuiteRunner() e2e.SuiteRunner {
 	agentgatewaySuiteRunner.Register("GlobalRateLimit", global_rate_limit.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("MCP", mcp.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("AIBackend", aibackend.NewTestingSuite)
-
+	agentgatewaySuiteRunner.Register("ConfigMap", configmap.NewTestingSuite) // redeploys by need
+	agentgatewaySuiteRunner.Register("Tracing", tracing.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("CSRF", csrf.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("LocalRateLimit", local_rate_limit.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("RBAC", rbac.NewTestingSuite)

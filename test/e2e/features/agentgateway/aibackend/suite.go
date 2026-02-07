@@ -48,12 +48,6 @@ var (
 	// manifests
 	setupManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "setup.yaml")
 
-	// objects
-	gatewayObjectMeta = metav1.ObjectMeta{
-		Name:      "gateway",
-		Namespace: "agentgateway-base",
-	}
-
 	// test cases
 	setup = base.TestCase{
 		Manifests: []string{

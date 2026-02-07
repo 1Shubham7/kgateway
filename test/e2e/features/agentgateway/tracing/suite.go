@@ -15,10 +15,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
@@ -27,19 +26,14 @@ var _ e2e.NewSuiteFunc = NewTestingSuite
 
 var (
 	setupManifest        = filepath.Join(fsutils.MustGetThisDir(), "testdata", "setup.yaml")
+	httpbinManifest      = filepath.Join(fsutils.MustGetThisDir(), "testdata", "httpbin.yaml")
 	tracingSetupManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "tracing.yaml")
-
-	proxyServiceObjectMeta = metav1.ObjectMeta{
-		Name:      "gw",
-		Namespace: "default",
-	}
 
 	// setup manifests applied before the test
 	setup = base.TestCase{
 		Manifests: []string{
 			setupManifest,
-			defaults.CurlPodManifest,
-			defaults.HttpbinManifest,
+			httpbinManifest,
 		},
 	}
 
@@ -70,39 +64,32 @@ func (s *testingSuite) TestOTelTracing() {
 // testOTelTracing makes a request to the httpbin service
 // and checks if the collector pod logs contain the expected lines.
 func (s *testingSuite) testOTelTracing() {
-	s.TestInstallation.AssertionsT(s.T()).EventuallyAgwPolicyCondition(s.Ctx, "agw", "default", "Accepted", metav1.ConditionTrue)
+	s.TestInstallation.AssertionsT(s.T()).EventuallyAgwPolicyCondition(s.Ctx, "agw", "agentgateway-base", "Accepted", metav1.ConditionTrue)
 
 	// The headerValue passed is used to differentiate between multiple calls by identifying a unique trace per call
 	headerValue := fmt.Sprintf("%v", rand.Intn(10000)) //nolint:gosec // G404: Using math/rand for test trace identification
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 		// make curl request to httpbin service with the custom header
-		s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
-			s.Ctx,
-			defaults.CurlPodExecOpt,
-			[]curl.Option{
-				curl.WithHostHeader("www.example.com"),
-				curl.WithHeader("x-header-tag", headerValue),
-				curl.WithPath("/status/200"),
-				curl.WithHost(kubeutils.ServiceFQDN(proxyServiceObjectMeta)),
-				curl.WithPort(8080),
-			},
+		common.BaseGateway.Send(
+			s.T(),
 			&matchers.HttpResponse{
 				StatusCode: 200,
 			},
-			20*time.Second,
-			2*time.Second,
+			curl.WithHostHeader("www.example.com"),
+			curl.WithHeader("x-header-tag", headerValue),
+			curl.WithPath("/status/200"),
 		)
 
 		// fetch the collector pod logs
 		pods, err := s.TestInstallation.Actions.Kubectl().GetPodsInNsWithLabel(
 			s.Ctx,
-			"default",
+			"agentgateway-base",
 			"app.kubernetes.io/name=opentelemetry-collector",
 		)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to get collector pods")
 		g.Expect(pods).NotTo(gomega.BeEmpty(), "No collector pods found")
 
-		logs, err := s.TestInstallation.Actions.Kubectl().GetContainerLogs(s.Ctx, "default", pods[0])
+		logs, err := s.TestInstallation.Actions.Kubectl().GetContainerLogs(s.Ctx, "agentgateway-base", pods[0])
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "Failed to get pod logs")
 
 		// Check if the logs match the patterns
