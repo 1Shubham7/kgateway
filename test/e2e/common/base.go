@@ -4,6 +4,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -44,6 +45,11 @@ type Gateway struct {
 
 var BaseGateway Gateway
 
+// common curl exit codes to the corresponding error substrings produced by client.Do
+var CurlExitCodes = map[int]string{
+	56: "connection reset by peer",
+}
+
 func (g *Gateway) Send(t *testing.T, match *matchers.HttpResponse, opts ...curl.Option) {
 	fullOpts := append([]curl.Option{curl.WithHost(g.Address)}, opts...)
 	retry.UntilSuccessOrFail(t, func() error {
@@ -62,4 +68,46 @@ func (g *Gateway) Send(t *testing.T, match *matchers.HttpResponse, opts ...curl.
 		}
 		return nil
 	})
+}
+
+func (g *Gateway) SendExpectError(t *testing.T, expectedErr string, opts ...curl.Option) {
+	fullOpts := append([]curl.Option{curl.WithHost(g.Address)}, opts...)
+
+	retry.UntilSuccessOrFail(t, func() error {
+		r, err := curl.ExecuteRequest(fullOpts...)
+
+		if err == nil {
+			// We successfully got an HTTP response — that is the opposite of what we expect
+			// so the retry loop tries again (or eventually fails the test).
+			if r != nil {
+				r.Body.Close()
+			}
+			return fmt.Errorf("expected a connection-level error but received a successful HTTP response")
+		}
+
+		// Unwrap to the root cause and compare
+		if expectedErr != "" {
+			root := unwrapRoot(err)
+			if root.Error() != expectedErr {
+				return fmt.Errorf("connection error root cause %q does not match expected %q (full error: %w)",
+					root.Error(), expectedErr, err)
+			}
+		}
+		return nil
+	})
+}
+
+// unwrapRoot walks the errors.Unwrap chain and returns the innermost error.
+// For net/http transport failures the chain is:
+//
+//	*url.Error → *net.OpError → *os.SyscallError → syscall.Errno
+func unwrapRoot(err error) error {
+	for {
+		inner := errors.Unwrap(err)
+		if inner == nil {
+			// No further wrapping — this is the root cause.
+			return err
+		}
+		err = inner
+	}
 }

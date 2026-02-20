@@ -87,14 +87,19 @@ func (c *requestConfig) executeNative() (*http.Response, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add headers
+	// Add headers.
+	// IMPORTANT: we write directly into the map rather than calling req.Header.Add/Set
+	// because those methods run textproto.CanonicalMIMEHeaderKey which rewrites the key
+	// (e.g. "X-CaSeD-HeAdEr" → "X-Cased-Header"). Direct map assignment preserves the
+	// original casing on the HTTP/1.1 wire, which is required for TestPreserveHttp1HeaderCase.
+	// HTTP header map reads are always case-insensitive, so other tests are unaffected.
 	for key, values := range c.headers {
 		for _, value := range values {
 			// Host header must be set on req.Host, not in req.Header
 			if strings.EqualFold(key, "Host") {
 				req.Host = value
 			} else {
-				req.Header.Add(key, value)
+				req.Header[key] = append(req.Header[key], value)
 			}
 		}
 	}
