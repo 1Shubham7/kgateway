@@ -890,6 +890,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("tls gateway with multiple TLSRoutes", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "tls-routing/multi-tlsroute.yaml",
+			outputFile: "tls-routing/multi-tlsroute-proxy.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("grpc gateway with basic routing", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "grpc-routing/basic.yaml",

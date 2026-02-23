@@ -250,39 +250,72 @@ func (ml *MergedListeners) AppendTlsListener(
 	routeInfos []*query.RouteInfo,
 	reporter reports.ListenerReporter,
 ) {
-	parent := tcpFilterChainParent{
-		gatewayListenerName: query.GenerateRouteKey(listener.Parent, string(listener.Name)),
-		listener:            listener,
-		listenerReporter:    reporter,
-		routesWithHosts:     routeInfos,
-	}
 	tls := listener.TLS
 	if tls == nil {
 		tls = &gwv1.ListenerTLSConfig{}
 	}
-	fc := tcpFilterChain{
-		parents:          parent,
-		tls:              tls,
-		sniDomain:        listener.Hostname,
-		listenerReporter: reporter,
-	}
 
 	finalPort := getListenerPortNumber(listener)
-	for _, lis := range ml.Listeners {
-		if lis.port == finalPort {
-			lis.TcpFilterChains = append(lis.TcpFilterChains, fc)
+	baseParent := tcpFilterChainParent{
+		gatewayListenerName: query.GenerateRouteKey(listener.Parent, string(listener.Name)),
+		listener:            listener,
+		listenerReporter:    reporter,
+	}
+
+	// If there are no routes attached to this TLS listener, we still need to create one empty filter
+	// chain so that the error-reporting logic in TranslateListener fires correctly
+	if len(routeInfos) == 0 {
+		baseParent.routesWithHosts = nil
+		fc := tcpFilterChain{
+			parents:          baseParent,
+			tls:              tls,
+			sniDomain:        listener.Hostname,
+			listenerReporter: reporter,
+		}
+		ml.appendTcpFilterChain(fc, listener, finalPort)
+		return
+	}
+
+	// Each TLSRoute gets its own filter chain so that Envoy can match traffic
+	// to the correct backend using SNI-based filter chain matching.
+	for _, route := range routeInfos {
+		baseParent.routesWithHosts = []*query.RouteInfo{route}
+		fc := tcpFilterChain{
+			parents:          baseParent,
+			tls:              tls,
+			sniDomain:        tlsRouteHostname(route, listener.Hostname),
+			listenerReporter: reporter,
+		}
+		ml.appendTcpFilterChain(fc, listener, finalPort)
+	}
+}
+
+func (ml *MergedListeners) appendTcpFilterChain(fc tcpFilterChain, listener ir.Listener, port gwv1.PortNumber) {
+	for i, lis := range ml.Listeners {
+		if lis.port == port {
+			ml.Listeners[i].TcpFilterChains = append(ml.Listeners[i].TcpFilterChains, fc)
 			return
 		}
 	}
-
-	// create a new filter chain for the listener
 	ml.Listeners = append(ml.Listeners, &MergedListener{
 		name:            GenerateListenerName(listener),
-		port:            finalPort,
+		port:            port,
 		TcpFilterChains: []tcpFilterChain{fc},
 		listener:        listener,
+		gateway:         ml.parentGw,
 		settings:        ml.settings,
 	})
+}
+
+// tlsRouteHostname returns the most-specific SNI hostname to use for a TLSRoute filter chain.
+// It prefers the first hostname from the route, falling back to the listener hostname.
+func tlsRouteHostname(route *query.RouteInfo, listenerHostname *gwv1.Hostname) *gwv1.Hostname {
+	hosts := route.Hostnames()
+	if len(hosts) > 0 {
+		h := gwv1.Hostname(hosts[0])
+		return &h
+	}
+	return listenerHostname
 }
 
 func (ml *MergedListeners) translateListeners(
@@ -415,18 +448,14 @@ func (tc *tcpFilterChain) translateTcpFilterChain(
 		return nil
 	}
 
-	if len(parent.routesWithHosts) > 1 {
-		// Only one route per listener is supported
-		// TODO: report error on the listener
-		//	reporter.Gateway(gw).SetCondition(reports.RouteCondition{
-		//		Type:   gwv1.RouteConditionPartiallyInvalid,
-		//		Status: metav1.ConditionTrue,
-		//		Reason: gwv1.RouteReasonUnsupportedValue,
-		//	})
+	var r *query.RouteInfo
+	if len(parent.routesWithHosts) == 1 {
+		r = parent.routesWithHosts[0]
+	} else {
+		r = slices.MinFunc(parent.routesWithHosts, func(a, b *query.RouteInfo) int {
+			return a.Object.GetSourceObject().GetCreationTimestamp().Compare(b.Object.GetSourceObject().GetCreationTimestamp().Time)
+		})
 	}
-	r := slices.MinFunc(parent.routesWithHosts, func(a, b *query.RouteInfo) int {
-		return a.Object.GetSourceObject().GetCreationTimestamp().Compare(b.Object.GetSourceObject().GetCreationTimestamp().Time)
-	})
 
 	switch r.Object.(type) {
 	case *ir.TcpRouteIR:
