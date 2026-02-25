@@ -5,8 +5,6 @@ package cors
 import (
 	"path/filepath"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 )
@@ -22,11 +20,6 @@ var (
 	routeCorsTrafficPolicyManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "tp-route-cors.yaml")
 
 	// objects created by deployer after applying gateway manifest
-	proxyObjectMeta = metav1.ObjectMeta{
-		Name:      "gateway",
-		Namespace: "kgateway-base",
-	}
-
 	setup = base.TestCase{
 		Manifests: []string{
 			simpleServiceManifest,

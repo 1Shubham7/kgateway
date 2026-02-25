@@ -61,12 +61,6 @@ func KubeGatewaySuiteRunner() e2e.SuiteRunner {
 	kubeGatewaySuiteRunner.Register("GRPCRouteServices", grpcroute.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("Transforms", transformation.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("ExtProc", extproc.NewTestingSuite)
-
-	kubeGatewaySuiteRunner.Register("Cors", cors.NewTestingSuite)
-	kubeGatewaySuiteRunner.Register("Compression", compression.NewTestingSuite)
-	kubeGatewaySuiteRunner.Register("BackendConfigPolicy", backendconfigpolicy.NewTestingSuite)
-	kubeGatewaySuiteRunner.Register("CSRF", csrf.NewTestingSuite)
-	kubeGatewaySuiteRunner.Register("AutoHostRewrite", auto_host_rewrite.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("Tracing", tracing.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("AttachedRoutes", loadtesting.NewAttachedRoutesSuite)
 	// kubeGatewaySuiteRunner.Register("RouteProbe", loadtesting.NewRouteProbeSuite)
@@ -96,6 +90,11 @@ func KubeGatewaySuiteRunner() e2e.SuiteRunner {
 	kubeGatewaySuiteRunner.Register("GlobalRateLimit", global_rate_limit.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("PolicySelector", policyselector.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("TrafficPolicyStatus", trafficpolicystatus.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("Cors", cors.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("Compression", compression.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("BackendConfigPolicy", backendconfigpolicy.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("CSRF", csrf.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("AutoHostRewrite", auto_host_rewrite.NewTestingSuite)
 
 	return kubeGatewaySuiteRunner
 }
