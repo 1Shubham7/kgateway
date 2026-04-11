@@ -602,7 +602,7 @@ func testScenario(
 			if err != nil {
 				return fmt.Errorf("failed to serialize xdsDump: %v", err)
 			}
-			os.WriteFile(fout, d, 0o600)
+			os.WriteFile(fout, d, 0o600) //nolint:errcheck,gosec // G306: Golden test file
 			return fmt.Errorf("wrote out file - nothing to test")
 		}
 		return dump.Compare(expectedXdsDump)

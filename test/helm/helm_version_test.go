@@ -65,7 +65,7 @@ func TestHelmChartVersionAndAppVersion(t *testing.T) {
 		require.NoError(t, err, "failed to create testdata directory")
 
 		err = os.WriteFile(absGoldenFile, got, 0o644) //nolint:gosec // G306: Golden test file can be readable
-		require.NoError(t, err, "failed to write golden file")
+		require.NoError(t, err, "failed to write golden file %s", absGoldenFile)
 		return
 	}
 
@@ -533,7 +533,7 @@ controller:
 					require.NoError(t, err, "failed to create testdata directory")
 
 					err = os.WriteFile(absGoldenFile, got, 0o644) //nolint:gosec // G306: Golden test file can be readable
-					require.NoError(t, err, "failed to write golden file")
+					require.NoError(t, err, "failed to write golden file %s", absGoldenFile)
 					return
 				}
 
