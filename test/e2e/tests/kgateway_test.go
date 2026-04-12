@@ -6,7 +6,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -51,7 +53,22 @@ func TestKgateway(t *testing.T) {
 	// Install kgateway
 	testInstallation.InstallKgatewayFromLocalChart(ctx, t)
 
-	common.SetupBaseConfig(ctx, t, testInstallation, filepath.Join("manifests", "kgateway-base.yaml"))
+	gatewayManifest := filepath.Join("manifests", "kgateway-base.yaml")
+	testutils.Cleanup(t, func() {
+		if err := testInstallation.ClusterContext.IstioClient.DeleteYAMLFiles("", gatewayManifest); err != nil &&
+			!strings.Contains(err.Error(), "not found") {
+			t.Errorf("failed to delete base config manifests %s: %v", gatewayManifest, err)
+		}
+		// Block until the namespace is deleted
+		waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := testInstallation.Actions.Kubectl().RunCommand(waitCtx,
+			"wait", "--for=delete", "namespace/kgateway-base", "--timeout=120s",
+		); err != nil && !strings.Contains(err.Error(), "not found") {
+			t.Logf("warning: timed out waiting for kgateway-base namespace deletion: %v", err)
+		}
+	})
+	common.SetupBaseConfig(ctx, t, testInstallation, gatewayManifest)
 	common.SetupBaseGateway(ctx, testInstallation, types.NamespacedName{
 		Namespace: "kgateway-base",
 		Name:      "gateway",
